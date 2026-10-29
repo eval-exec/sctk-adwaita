@@ -51,6 +51,21 @@ pub struct DecorationParts {
     config: LayoutConfig,
 }
 
+/// A hidden part keeps its surface, and its last buffer, until the compositor
+/// processes the commit.  The commit that hides it must therefore be valid
+/// against whatever buffer the surface still carries: a synchronized
+/// subsurface coalesces this state with any pending `set_buffer_scale` from
+/// the draw that preceded it, and hiding drops the buffer while the pending
+/// scale still names the new value.  Weston then validates the retained
+/// scale-1 buffer against the new scale and kills the connection
+/// (`wl_surface` error `invalid_size`: "surface size (754x35) was not an
+/// integer multiple of scale (2)").  A hidden part draws nothing, so pin a
+/// scale that any retained buffer satisfies; the next visible draw sets the
+/// real scale together with its matching buffer in one commit.
+fn reset_hidden_scale(surface: &WlTyped<WlSurface, SurfaceData<()>>) {
+    surface.set_buffer_scale(1);
+}
+
 impl DecorationParts {
     pub fn new<State>(
         base_surface: &WlTyped<WlSurface, SurfaceData<()>>,
@@ -108,6 +123,7 @@ impl DecorationParts {
         for part in self.parts.iter_mut() {
             part.hide = true;
             part.subsurface.set_sync();
+            reset_hidden_scale(&part.surface);
             part.surface.attach(None, 0, 0);
             part.surface.commit();
         }
@@ -123,6 +139,7 @@ impl DecorationParts {
     pub fn hide_edges(&mut self) {
         for part in self.edges_mut() {
             part.hide = true;
+            reset_hidden_scale(&part.surface);
             part.surface.attach(None, 0, 0);
             part.surface.commit();
         }
@@ -131,6 +148,7 @@ impl DecorationParts {
     pub fn hide_titlebar(&mut self) {
         let part = self.header_mut();
         part.hide = true;
+        reset_hidden_scale(&part.surface);
         part.surface.attach(None, 0, 0);
         part.surface.commit();
     }
